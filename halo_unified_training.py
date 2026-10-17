@@ -76,7 +76,7 @@ class Config:
     #   "googlenet"        -  6.8M params | Batch  64 | Inception Modules (needs 224x224)
     # -------------------------------------------------------------------------
     KAGGLE_INPUT = "/kaggle/input"
-    SAVE_DIR = "/kaggle/working/results"
+    SAVE_DIR = os.environ.get("HALO_SAVE_DIR") or ("/kaggle/working/results" if os.path.isdir("/kaggle/working") else "./results")
     
     # Run these backbones sequentially (Top 3 diverse architectures)
     BACKBONES = ["resnet18", "densenet121", "mobilenet_v2", "efficientnet_b0", "squeezenet"]
@@ -1199,6 +1199,42 @@ class DCALoss(nn.Module):
         else:
             return F.cross_entropy(logits, targets, label_smoothing=0.2)
 
+
+class LogitAdjustedLoss(nn.Module):
+    def __init__(self, tau=1.0):
+        super().__init__()
+        c = np.array(cfg.CLASS_COUNTS, dtype=np.float64)
+        pi = c / c.sum()
+        self.offset = torch.tensor(tau * np.log(pi + 1e-12), dtype=torch.float32, device=cfg.DEVICE)
+    def forward(self, logits, targets):
+        return F.cross_entropy(logits + self.offset, targets)
+
+
+class BalancedSoftmaxLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        c = np.array(cfg.CLASS_COUNTS, dtype=np.float64)
+        self.log_n = torch.tensor(np.log(np.maximum(c, 1.0)), dtype=torch.float32, device=cfg.DEVICE)
+    def forward(self, logits, targets):
+        return F.cross_entropy(logits + self.log_n, targets)
+
+
+class LDAMDRWLoss(nn.Module):
+    def __init__(self, s=30.0, max_m=0.5, beta=0.9999):
+        super().__init__()
+        c = np.array(cfg.CLASS_COUNTS, dtype=np.float64)
+        m = 1.0 / np.sqrt(np.sqrt(c))
+        m = m * (max_m / m.max())
+        w = (1.0 - beta) / (1.0 - np.power(beta, c) + 1e-8)
+        w = w / w.sum() * len(c)
+        self.m = torch.tensor(m, dtype=torch.float32, device=cfg.DEVICE)
+        self.w = torch.tensor(w, dtype=torch.float32, device=cfg.DEVICE)
+        self.s = s
+    def forward(self, logits, targets, drw=False):
+        oh = F.one_hot(targets, logits.size(1)).bool()
+        out = torch.where(oh, logits - self.m[targets][:, None], logits)
+        return F.cross_entropy(self.s * out, targets, weight=self.w if drw else None)
+
 # =============================================================================
 # 6. DYNAMIC WEIGHT MANAGER (with EMA ablation — Experiment 3)
 # =============================================================================
@@ -1518,6 +1554,12 @@ def run_pipeline():
             crit = ALPALoss().to(cfg.DEVICE)
         elif method == "RobustFocal":
             crit = RobustFocalLoss().to(cfg.DEVICE)
+        elif method == "LA":
+            crit = LogitAdjustedLoss().to(cfg.DEVICE)
+        elif method == "BalancedSoftmax":
+            crit = BalancedSoftmaxLoss().to(cfg.DEVICE)
+        elif method == "LDAM-DRW":
+            crit = LDAMDRWLoss().to(cfg.DEVICE)
         elif method == "DCAL":
             crit = PublishedDCALoss().to(cfg.DEVICE)
             dw_manager = DynamicWeightManager(use_ema=True)
@@ -1558,6 +1600,8 @@ def run_pipeline():
                     loss = crit(out, y.to(cfg.DEVICE), w_active=w_active, gamma=gamma)
                     train_logits_list.append(out.detach().cpu().numpy())
                     train_targets_list.append(y.numpy())
+                elif method == "LDAM-DRW":
+                    loss = crit(out, y.to(cfg.DEVICE), drw=(ep > int(0.8 * cfg.EPOCHS)))
                 else:
                     loss = crit(out, y.to(cfg.DEVICE))
                     
@@ -1626,9 +1670,12 @@ def run_pipeline():
         test_feats, test_probs, test_tgts = test_out[2], test_out[3], test_out[4]
         test_acc, test_ece, test_sil = test_out[5], test_out[6], test_out[7]
         test_entropy, test_class_ent, test_ent_sep = test_out[8], test_out[9], test_out[10]
+
+        raw_f1, raw_acc, raw_ece = float(test_f1s.mean()), float(test_acc), float(test_ece)
+        best_tau = 0.0
         
-        # V5: Post-Hoc Grid Search for optimal tau (maximizes Macro F1 on val set)
-        if is_v2:
+        # Shared Post-Hoc Grid Search for optimal tau across ALL methods (Plan #1)
+        if getattr(cfg, "CALIBRATE_ALL_METHODS", True) or is_v2:
             print("  Searching for optimal tau via grid search on validation set...")
             
             # Collect raw validation logits
@@ -1647,10 +1694,9 @@ def run_pipeline():
             log_priors_np = np.log(class_priors + 1e-12)
             
             # Grid search: find tau that maximizes MACRO F1 on val set 
-            # (REMOVED sample_weight as it double-weights tail classes mathematically and causes massive overfitting on 290 samples)
             best_tau, best_val_f1 = 0.0, 0.0
             
-            for tau_candidate in np.arange(0.0, 2.1, 0.1):
+            for tau_candidate in np.arange(0.0, 3.05, 0.05):
                 offset = tau_candidate * (-log_priors_np)  # Boost minority classes
                 adj_lg = val_logits_np + offset
                 adj_preds = adj_lg.argmax(axis=1)
@@ -1658,7 +1704,7 @@ def run_pipeline():
                 macro_f1 = rep['macro avg']['f1-score']
                 if macro_f1 > best_val_f1:
                     best_val_f1 = macro_f1
-                    best_tau = tau_candidate
+                    best_tau = float(tau_candidate)
             
             print(f"  Optimal tau={best_tau:.2f} (val macro F1={best_val_f1:.4f})")
             
@@ -1670,6 +1716,8 @@ def run_pipeline():
                     test_tg_list.append(y.numpy())
             raw_test_logits = np.concatenate(test_lg_list)
             raw_test_tgts = np.concatenate(test_tg_list)
+            valid_m = raw_test_tgts >= 0
+            raw_test_logits, raw_test_tgts = raw_test_logits[valid_m], raw_test_tgts[valid_m]
             
             optimal_offset = best_tau * (-log_priors_np)
             adj_logits = raw_test_logits + optimal_offset
@@ -1712,11 +1760,12 @@ def run_pipeline():
                 if cmask.sum() > 0:
                     test_class_ent[c] = adj_entropy_per[cmask].mean()
         
-        print(f"[{method} Final] F1: {test_f1s.mean():.4f} | Acc: {test_acc:.4f} | "
-              f"ECE: {test_ece:.4f} | Entropy: {test_entropy:.4f} | Sep: {test_ent_sep:.4f}")
+        print(f"[{method} Final] Raw F1: {raw_f1:.4f} | +tau* F1: {test_f1s.mean():.4f} (tau*={best_tau:.2f}) | "
+              f"Acc: {test_acc:.4f} | ECE: {test_ece:.4f} | Entropy: {test_entropy:.4f} | Sep: {test_ent_sep:.4f}")
         
         results[method] = {
             "features": test_feats, "probs": test_probs, "targets": test_tgts,
+            "raw_f1": raw_f1, "raw_acc": raw_acc, "raw_ece": raw_ece, "tau": best_tau,
             "f1": test_f1s.mean(), "acc": test_acc, "ece": test_ece, "sil": test_sil,
             "entropy": test_entropy, "entropy_sep": test_ent_sep
         }
@@ -1760,17 +1809,17 @@ def run_pipeline():
     # =========================================================================
     # FINAL RESULTS TABLE
     # =========================================================================
-    print(f"\n{'='*95}")
-    print(f"{'FINAL EXPERIMENTAL RESULTS SUMMARY':^95}")
-    print(f"{'='*95}")
-    print(f"{'Method':<12} | {'Macro F1':<9} | {'Accuracy':<9} | {'ECE':<9} | {'Silhouette':<10} | {'Entropy':<9} | {'Ent.Sep.'}")
-    print(f"{'-'*95}")
+    print(f"\n{'='*110}")
+    print(f"{'FINAL EXPERIMENTAL RESULTS SUMMARY (RAW vs +TAU*)':^110}")
+    print(f"{'='*110}")
+    print(f"{'Method':<16} | {'Raw F1':<8} | {'+tau* F1':<9} | {'tau*':<5} | {'Accuracy':<9} | {'ECE':<9} | {'Silhouette':<10} | {'Entropy':<9} | {'Ent.Sep.'}")
+    print(f"{'-'*110}")
     for m in cfg.METHODS_TO_RUN:
         if m in results:
             r = results[m]
-            print(f"{m:<12} | {r['f1']:.4f}    | {r['acc']:.4f}    | {r['ece']:.4f}    | "
+            print(f"{m:<16} | {r['raw_f1']:.4f}   | {r['f1']:.4f}    | {r['tau']:.2f}  | {r['acc']:.4f}    | {r['ece']:.4f}    | "
                   f"{r['sil']:.4f}     | {r['entropy']:.4f}    | {r['entropy_sep']:.4f}")
-    print(f"{'='*95}")
+    print(f"{'='*110}")
     
     print(f"\nDone with {cfg.BACKBONE}! Check {cfg.SAVE_DIR}")
 

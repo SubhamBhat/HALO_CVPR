@@ -171,3 +171,72 @@ class PublishedDCALoss(nn.Module):
         
         return ce_loss + self.lambda_mdca * mdca_loss
 
+
+class LogitAdjustedLoss(nn.Module):
+    """Menon et al. (ICLR 2021) Logit-Adjusted training loss: CE(z + tau * log pi, y)."""
+    def __init__(self, tau=1.0, class_counts=None, device=None):
+        super().__init__()
+        c = np.array(class_counts if class_counts is not None else cfg.CLASS_COUNTS, dtype=np.float64)
+        pi = c / c.sum()
+        dev = device if device is not None else cfg.DEVICE
+        self.offset = torch.tensor(tau * np.log(pi + 1e-12), dtype=torch.float32, device=dev)
+
+    def forward(self, logits, targets):
+        return F.cross_entropy(logits + self.offset, targets)
+
+
+class BalancedSoftmaxLoss(nn.Module):
+    """Ren et al. (NeurIPS 2020) Balanced Meta-Softmax loss: CE(z + log N_c, y)."""
+    def __init__(self, class_counts=None, device=None):
+        super().__init__()
+        c = np.array(class_counts if class_counts is not None else cfg.CLASS_COUNTS, dtype=np.float64)
+        dev = device if device is not None else cfg.DEVICE
+        self.log_n = torch.tensor(np.log(np.maximum(c, 1.0)), dtype=torch.float32, device=dev)
+
+    def forward(self, logits, targets):
+        return F.cross_entropy(logits + self.log_n, targets)
+
+
+class LDAMDRWLoss(nn.Module):
+    """Cao et al. (NeurIPS 2019) LDAM loss with Deferred Re-Weighting (DRW) at 80% of training."""
+    def __init__(self, s=30.0, max_m=0.5, beta=0.9999, class_counts=None, device=None):
+        super().__init__()
+        c = np.array(class_counts if class_counts is not None else cfg.CLASS_COUNTS, dtype=np.float64)
+        dev = device if device is not None else cfg.DEVICE
+        m = 1.0 / np.sqrt(np.sqrt(c))
+        m = m * (max_m / m.max())
+        w = (1.0 - beta) / (1.0 - np.power(beta, c) + 1e-8)
+        w = w / w.sum() * len(c)
+        self.m = torch.tensor(m, dtype=torch.float32, device=dev)
+        self.w = torch.tensor(w, dtype=torch.float32, device=dev)
+        self.s = s
+
+    def forward(self, logits, targets, drw=False):
+        oh = F.one_hot(targets, logits.size(1)).bool()
+        out = torch.where(oh, logits - self.m[targets][:, None], logits)
+        return F.cross_entropy(self.s * out, targets, weight=self.w if drw else None)
+
+
+class LWSHead(nn.Module):
+    """Kang et al. (ICLR 2020) Learnable Weight Scaling (LWS) on a frozen linear classifier."""
+    def __init__(self, clf, num_classes=None):
+        super().__init__()
+        self.clf = clf
+        for p in self.clf.parameters():
+            p.requires_grad_(False)
+        C = num_classes if num_classes is not None else cfg.NUM_CLASSES
+        self.scale = nn.Parameter(torch.ones(C))
+
+    def forward(self, f):
+        return self.clf(f) * self.scale
+
+
+class CosineClassifier(nn.Module):
+    """L2-normalized cosine similarity linear head (standard for LDAM / margin losses)."""
+    def __init__(self, in_features, num_classes):
+        super().__init__()
+        self.weight = nn.Parameter(torch.Tensor(num_classes, in_features))
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+
+    def forward(self, x):
+        return F.linear(F.normalize(x, p=2, dim=1), F.normalize(self.weight, p=2, dim=1))
