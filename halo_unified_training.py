@@ -55,7 +55,7 @@ class Config:
     #   stanford_cars   → Search & add "stanford-cars-dataset" from Kaggle Datasets
     #   ham10000        → Search & add "skin-cancer-mnist-ham10000" from Kaggle Datasets
     # -------------------------------------------------------------------------
-    DATASETS = ["cifar10_lt", "cifar100_lt", "oxford_pet", "cub200", "stanford_cars"]
+    DATASETS = ["cifar10_lt", "cifar100_lt", "oxford_pet", "cub200"]
     DATASET = "cifar10_lt"  # Default
     
     # -------------------------------------------------------------------------
@@ -1184,20 +1184,25 @@ class PublishedDCALoss(nn.Module):
         
         return ce_loss + self.lambda_mdca * mdca_loss
 
-class DCALoss(nn.Module):
+class HALOLoss(nn.Module):
+    """
+    HALO Loss (Algorithm 1):
+      Weighted cross-entropy loss without heuristic label smoothing:
+        ce = CrossEntropy(logits, targets, weight=w_active)
+    """
     def __init__(self):
-        super(DCALoss, self).__init__()
-        # We no longer hardcode weights here; they are fully managed by DynamicWeightManager
+        super(HALOLoss, self).__init__()
         
     def forward(self, logits, targets, w_active=None, gamma=0.0):
         if w_active is not None:
-            # Use reduction='none' + manual multiply — confirmed best on Stanford Cars
-            # Increased label_smoothing to 0.2 to prevent overconfidence on 1-shot tail classes
-            ce = F.cross_entropy(logits, targets, reduction='none', label_smoothing=0.2)
+            ce = F.cross_entropy(logits, targets, reduction='none')
             w = w_active[targets]
             return (ce * w).mean()
         else:
-            return F.cross_entropy(logits, targets, label_smoothing=0.2)
+            return F.cross_entropy(logits, targets)
+
+# Backward-compatibility alias
+DCALoss = HALOLoss
 
 
 class LogitAdjustedLoss(nn.Module):
@@ -1239,60 +1244,73 @@ class LDAMDRWLoss(nn.Module):
 # 6. DYNAMIC WEIGHT MANAGER (with EMA ablation — Experiment 3)
 # =============================================================================
 class DynamicWeightManager:
-    def __init__(self, use_ema=False):
-        self.c = cfg.NUM_CLASSES
-        self.counts = np.array(cfg.CLASS_COUNTS, dtype=np.float64)
+    """
+    HALO Dynamic Weight Manager implementing Algorithm 1:
+      - W_rep^(c) = N_max / N_c  (Linear inverse-frequency, beta=1.0)
+      - W_pen^(c) = sqrt(N_max / N_c)  (Square-root dampened penalty, beta=0.5)
+      - F1_tr initialized to 1.0 for all classes
+      - Simple EMA: F1_smooth = 0.9 * F1_smooth + 0.1 * F1_tr
+      - M_c = (max_j F1_smooth^(j) + eps) / (F1_smooth^(c) + eps)
+      - W_dyn = W_pen * (1 + log(max(M_c, 1.0)))
+      - W_act = (1 - gamma) * W_rep + gamma * W_dyn
+      - L1 trace normalization: w = K * w / sum(w)
+    """
+    def __init__(self, counts=None, use_ema=True):
+        if counts is None:
+            counts = cfg.CLASS_COUNTS
+        self.c = len(counts)
+        self.counts = np.array(counts, dtype=np.float64)
+        self.use_ema = use_ema
         
-        # Cube-Root Inverse Frequency for early Representation Learning (3.0:1)
-        # Sqrt (5.3x) and Linear (28x) amplify noise too much on 1-sample tail classes.
-        self.w_rep = (self.counts.max() / self.counts) ** 0.33
+        # Linear inverse frequency for early representation learning (beta = 1.0)
+        self.w_rep = self.counts.max() / np.maximum(self.counts, 1.0)
         
-        # Cube-Root for the base of the Dynamic Penalty (3.0:1)
-        # Prevents massive gradient instability on 1-shot validation classes.
-        self.w_pen_base = (self.counts.max() / self.counts) ** 0.33
+        # Square-root dampened base penalty (beta = 0.5)
+        self.w_pen = np.sqrt(self.counts.max() / np.maximum(self.counts, 1.0))
+        self.w_pen_base = self.w_pen  # alias for backward compatibility
+        self.w_dyn = self.w_pen.copy()
+        self.w_dynamic = self.w_dyn   # alias for backward compatibility
         
-        self.w_d = self._norm(self.w_rep)
-        self.f_smooth = None
+        # Initialized to 1.0 for all classes per Algorithm 1
+        self.f1_smooth = np.ones(self.c, dtype=np.float64)
+        self.f_smooth = self.f1_smooth  # alias for backward compatibility
         self.initialized = False
         self.wd_history = []
         
     def _norm(self, w):
         return self.c * w / (w.sum() + 1e-9)
         
-    def update(self, val_f1, val_ece):
+    def update(self, train_f1, train_ece=None):
+        """Update dynamic weights using training set per-class F1."""
         self.initialized = True
+        train_f1 = np.array(train_f1, dtype=np.float64)
         
-        if not hasattr(self, 'sigma2_f'):
-            self.sigma2_f = np.ones(self.c) * 0.01
-            self.f_smooth = np.ones(self.c) / self.c
-            self.e_smooth = np.ones(self.c) * 0.05
-            
-        if getattr(self, 'use_ema', True):
-            # Variance-weighted EMA smoothing (Critical for tiny val sets like Stanford Cars)
-            inv = val_f1 - self.f_smooth
-            self.sigma2_f = 0.9 * self.sigma2_f + 0.1 * (inv**2)
-            adapt_lr = 0.1 / (0.1 + (self.sigma2_f / (self.sigma2_f.mean() + 1e-9)))
-            self.f_smooth += adapt_lr * inv
-            self.e_smooth = 0.9 * self.e_smooth + 0.1 * val_ece
+        if self.use_ema:
+            self.f1_smooth = 0.9 * self.f1_smooth + 0.1 * train_f1
         else:
-            self.f_smooth = val_f1.copy()
-            self.e_smooth = val_ece.copy()
+            self.f1_smooth = train_f1.copy()
+        self.f_smooth = self.f1_smooth
         
-        f1_max = self.f_smooth.max()
-        if f1_max > 0:
-            dynamic_multiplier = 1.0 + np.log((f1_max + 1e-9) / (self.f_smooth + 1e-9))
-        else:
-            dynamic_multiplier = np.ones_like(self.f_smooth)
-            
-        self.w_dynamic = self.w_pen_base * dynamic_multiplier
+        eps = 1e-9
+        f1_max = self.f1_smooth.max()
+        M_c = (f1_max + eps) / (self.f1_smooth + eps)
+        dynamic_multiplier = 1.0 + np.log(np.maximum(M_c, 1.0))
+        
+        self.w_dyn = self.w_pen * dynamic_multiplier
+        self.w_dynamic = self.w_dyn
         
     def get_active_weights(self, gamma=0.0):
         if not self.initialized:
-            return self._norm(self.w_rep)
-        w_active = (1.0 - gamma) * self.w_rep + gamma * self.w_dynamic
-        normed_w = self._norm(w_active)
+            normed_w = self._norm(self.w_rep)
+        else:
+            w_active = (1.0 - gamma) * self.w_rep + gamma * self.w_dyn
+            normed_w = self._norm(w_active)
         self.wd_history.append(normed_w.copy())
         return normed_w
+        
+    def get(self, gamma=0.0):
+        return self.get_active_weights(gamma)
+
 
 # =============================================================================
 # 7. RL PENALTY SCHEDULER (Experiment 4)
@@ -1564,7 +1582,7 @@ def run_pipeline():
             crit = PublishedDCALoss().to(cfg.DEVICE)
             dw_manager = DynamicWeightManager(use_ema=True)
         elif method in ("DCAL_NO_EMA", "DCAL_RL", "HALO"):
-            crit = DCALoss().to(cfg.DEVICE)
+            crit = HALOLoss().to(cfg.DEVICE)
             dw_manager = DynamicWeightManager(use_ema=(method != "DCAL_NO_EMA"))
             if method == "DCAL_RL": rl_scheduler = RLPenaltyScheduler()
 
