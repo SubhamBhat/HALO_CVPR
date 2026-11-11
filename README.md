@@ -165,8 +165,8 @@ All models trained for 100 epochs using Adam ($\eta=10^{-4} \to 10^{-6}$), batch
 ## 6. Installation & Reproduction
 
 ```bash
-git clone https://github.com/SubhamBhat/HALO_WACV.git
-cd HALO_WACV
+git clone https://github.com/SubhamBhat/HALO_CVPR.git
+cd HALO_CVPR
 pip install -r requirements.txt
 ```
 
