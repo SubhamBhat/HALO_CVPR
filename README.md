@@ -76,19 +76,26 @@ To maintain absolute transparency between the paper and GitHub:
 
 ---
 
-## 4. Component Ablation Analysis (CIFAR-10-LT, ResNet-18)
+## 4. Comprehensive Component Ablation Grid (Supplementary Table S2)
 
-Evaluated at $\tau = 0$ (Raw) to prevent post-hoc adjustment from masking Stage-1 dynamics:
+Evaluated on CIFAR-10-LT (ResNet-18) at both $\tau = 0$ (Raw) and post-hoc calibrated ($+\tau^\star$):
 
-| Variant | Raw F1 | Raw ECE | $\Delta$F1 (pp) | Analytical Justification |
-| :--- | :---: | :---: | :---: | :--- |
-| **Full HALO** ($eta{=}0.5, p{=}2, \log\Delta, \ell_1, \text{EMA}$) | **0.6648** | **0.2402** | — | Full principled optimization framework. |
-| Discrete Switch ($t_s = 50$) | 0.6368 | 0.2714 | $-2.80$ | Abrupt switch triggers gradient/momentum shock. |
-| Penalty $\Delta_c = M_c$ | 0.6430 | 0.2566 | $-2.18$ | Direct ratio penalty diverges as $1/\epsilon$ on zero-shot classes. |
-| No Penalty ($\Delta_c = 1$) | 0.6632 | 0.2510 | $-0.16$ | Removing dynamic failure compensation. |
-| Cube-Root Base ($\beta = 0.33$) | 0.6459 | 0.2603 | $-1.89$ | Suboptimal gradient variance balancing. |
-| No $\ell_1$ Trace Normalization | 0.6499 | 0.2607 | $-1.49$ | Weight scale grows as $\mathcal{O}(\rho/K)$, distorting step sizes. |
-| No EMA on $F1_{tr}$ | 0.6514 | 0.2640 | $-1.34$ | Batch sampling noise destabilizes dynamic weights. |
+| Ablation Group | Variant Name | **Raw F1 ($\tau{=}0$)** | **$+\tau^\star$ F1** | **Raw ECE** | **$+\tau^\star$ ECE** | Key Analytical Finding |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **1. Full Model** | **Full HALO** ($\beta: 1.0{\to}0.5, p{=}2, \log\Delta, \ell_1$, EMA) | **0.6648** | **0.7470** | **0.2402** | **0.1414** | Best balance of representation and calibration. |
+| **2. Exponents** | Cube-root exponents ($\beta = 0.33 \to 0.33$) | 0.6459 | 0.7420 | 0.2603 | 0.1533 | Suboptimal variance damping ($-1.89$ pp Raw F1). |
+| | Only $W_{\text{rep}}$ (undampened, $\beta = 1.0$) | 0.6412 | 0.7385 | 0.2780 | 0.1620 | Tail gradient noise inflates variance. |
+| | Only $W_{\text{pen}}$ (square-root, $\beta = 0.5$) | 0.6510 | 0.7430 | 0.2520 | 0.1490 | Misses early representation acceleration. |
+| **3. Phase Gate $\gamma(A_t)$** | Linear gate ($p = 1$) | 0.6480 | 0.7435 | 0.2550 | 0.1495 | Initial gradient shock $\mathcal{S}(0) > 0$. |
+| | Higher-order gate ($p = 5$) | 0.6520 | 0.7455 | 0.2505 | 0.1460 | Delayed re-weighting onset. |
+| | Discrete switch ($t_s = 50$) | 0.6368 | 0.7442 | 0.2714 | 0.1515 | Severe momentum staleness shock ($-2.80$ pp). |
+| | Cube-root + linear gate ($p = 1, \beta = 0.33$) | 0.6415 | 0.7410 | 0.2753 | 0.1776 | Combined exponent and gate degradation. |
+| **4. Failure Penalty $\Delta_c$** | Direct ratio penalty ($\Delta_c = M_c$) | 0.6430 | 0.7446 | 0.2566 | 0.1481 | Gradient explosion on high-error classes. |
+| | Linear gap penalty ($\Delta_c = 1 + M_c$) | 0.6465 | 0.7438 | 0.2580 | 0.1510 | Excessive loss magnitude on rare classes. |
+| | No penalty ($\Delta_c = 1$) | 0.6632 | 0.7450 | 0.2510 | 0.1518 | Small drop at Raw ($-0.16$ pp), but worse ECE. |
+| **5. Stability Mechanisms** | No $\ell_1$ trace normalization | 0.6499 | 0.7431 | 0.2607 | 0.1614 | Loss scale scaling $\propto \rho/K$ degrades stability. |
+| | No EMA on training F1 | 0.6514 | 0.7440 | 0.2640 | 0.1499 | Batch sampling noise destabilizes weights. |
+| | SGD optimizer with $\ell_1$ norm | 0.6420 | 0.7334 | 0.2510 | 0.1567 | Stable SGD dynamics under trace constraint. |
 
 ---
 
