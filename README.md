@@ -10,6 +10,12 @@ This repository contains the official PyTorch implementation and reproduction ar
 
 ---
 
+## Abstract
+
+Long-tail visual recognition is commonly addressed through two-stage pipelines characterized by ad-hoc epoch schedules, heuristic margin penalties, and manual re-weighting sweeps. We introduce **HALO (Hyperparameter-Lean Adaptive Long-Tail Optimization)**, a continuous optimization framework wherein training dynamics, loss scaling, and calibration follow from analytical principles in statistical learning theory, optimization, and Bayesian decision theory rather than empirical grid searches. First, we show that standard inverse-frequency weights cause the gradient estimator's variance to diverge as $\mathcal{O}(1/N_c)$ on minority classes; we prove that a square-root damping exponent ($\beta = 1/2$) uniquely equalizes the expected per-class variance contribution to $\mathcal{O}(1)$ across all classes, eliminating tail gradient explosion. Second, we formulate the phase transition between representation learning and cost-sensitive re-weighting as a continuous homotopy governed by training accuracy, proving that a quadratic schedule ($\gamma(A) = A^2$) is the minimal-order polynomial that eliminates gradient drift shocks at both initialization and convergence. Third, we establish that multiplicative mass correction in probability space corresponds to an additive logarithmic penalty in logit space, preventing minority loss divergence. Finally, we establish an analytical upper bound on the post-hoc log-prior calibration search space. Evaluated against competitive baselines across four benchmarks (CIFAR-10/100-LT, Oxford-IIIT Pets-LT, and CUB-200-LT) and five diverse architectures (SqueezeNet, MobileNet-V2, EfficientNet-B0, DenseNet-121, and ResNet-18), HALO consistently achieves state-of-the-art Macro F1 while maintaining superior probability calibration. Code is available at: [https://anonymous.4open.science/r/HALO_CVPR-661D/](https://anonymous.4open.science/r/HALO_CVPR-661D/).
+
+---
+
 ## 1. Method Overview & Theoretical Principles
 
 Long-tail visual recognition is commonly addressed through two-stage pipelines characterized by ad-hoc epoch schedules, heuristic margin penalties, and manual re-weighting sweeps. **HALO** is a continuous, single-stage optimization framework wherein training dynamics, loss scaling, and calibration follow from analytical principles in statistical learning theory, optimization, and Bayesian decision theory:
