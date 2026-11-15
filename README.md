@@ -14,7 +14,7 @@ This repository contains the official PyTorch implementation and reproduction ar
 
 ## Abstract
 
-Long-tail visual recognition is commonly addressed through two-stage pipelines characterized by ad-hoc epoch schedules, heuristic margin penalties, and manual re-weighting sweeps. We introduce **HALO (Hyperparameter-Lean Adaptive Long-Tail Optimization)**, a continuous optimization framework wherein training dynamics, loss scaling, and calibration follow from analytical principles in statistical learning theory, optimization, and Bayesian decision theory rather than empirical grid searches. First, we show that standard inverse-frequency weights cause each minority class's share of the gradient second moment to grow as $\mathcal{O}(1/N_c)$; we prove that a square-root damping exponent ($\beta = 1/2$) uniquely renders the per-class second-moment share independent of $ ($\mathcal{O}(N_c^0)$ across all classes), eliminating tail gradient explosion. Second, we formulate the phase transition between representation learning and cost-sensitive re-weighting as a continuous homotopy governed by training accuracy, proving that a quadratic schedule ($\gamma(A) = A^2$) is the minimal-order polynomial that eliminates gradient drift shocks at both initialization and convergence. Third, we establish that multiplicative mass correction in probability space corresponds to an additive logarithmic penalty in logit space, preventing minority loss divergence. Finally, we establish an analytical upper bound on the post-hoc log-prior calibration search space. Evaluated against competitive baselines across four benchmarks (CIFAR-10/100-LT, Oxford-IIIT Pets-LT, and CUB-200-LT) and five diverse architectures (SqueezeNet, MobileNet-V2, EfficientNet-B0, DenseNet-121, and ResNet-18), HALO consistently achieves state-of-the-art Macro F1 while maintaining competitive probability calibration. Code is available at: [https://anonymous.4open.science/r/HALO_CVPR-661D/](https://anonymous.4open.science/r/HALO_CVPR-661D/).
+Long-tail visual recognition is commonly addressed through two-stage pipelines characterized by ad-hoc epoch schedules, heuristic margin penalties, and manual re-weighting sweeps. We introduce **HALO (Hyperparameter-Lean Adaptive Long-Tail Optimization)**, a continuous optimization framework wherein training dynamics, loss scaling, and calibration follow from analytical principles in statistical learning theory, optimization, and Bayesian decision theory rather than empirical grid searches. First, we show that standard inverse-frequency weights cause the gradient estimator's variance to diverge as $\mathcal{O}(1/N_c)$ on minority classes; we prove that a square-root damping exponent ($\beta = 1/2$) uniquely equalizes the expected per-class variance contribution to $\mathcal{O}(1)$ across all classes, eliminating tail gradient explosion. Second, we formulate the phase transition between representation learning and cost-sensitive re-weighting as a continuous homotopy governed by training accuracy, proving that a quadratic schedule ($\gamma(A) = A^2$) is the minimal-order polynomial that eliminates gradient drift shocks at both initialization and convergence. Third, we establish that multiplicative mass correction in probability space corresponds to an additive logarithmic penalty in logit space, preventing minority loss divergence. Finally, we establish an analytical upper bound on the post-hoc log-prior calibration search space. Evaluated against competitive baselines across four benchmarks (CIFAR-10/100-LT, Oxford-IIIT Pets-LT, and CUB-200-LT) and five diverse architectures (SqueezeNet, MobileNet-V2, EfficientNet-B0, DenseNet-121, and ResNet-18), HALO consistently achieves state-of-the-art Macro F1 while maintaining superior probability calibration.
 
 ---
 
@@ -22,47 +22,47 @@ Long-tail visual recognition is commonly addressed through two-stage pipelines c
 
 Long-tail visual recognition is commonly addressed through two-stage pipelines characterized by ad-hoc epoch schedules, heuristic margin penalties, and manual re-weighting sweeps. **HALO** is a continuous, single-stage optimization framework wherein training dynamics, loss scaling, and calibration follow from analytical principles in statistical learning theory, optimization, and Bayesian decision theory:
 
-1. **Equal-Contribution Importance Weighting (Proposition 1):** Inverse-frequency re-weighting causes each minority class's share of the gradient second moment to grow as $\mathcal{O}(1/N_c)$. A square-root damping exponent ($\beta = 1/2$) uniquely renders the per-class second-moment share independent of $ ($\mathcal{O}(N_c^0)$ across all classes), eliminating tail gradient explosion.
-2. **Accuracy-Gated Homotopy (Proposition 2):** Training is transitioned smoothly from feature representation learning ({\mathrm{rep}}$) to class-balanced loss scaling ({\mathrm{dyn}}$) via an epoch-free quadratic accuracy gate $\gamma(A_{\mathrm{tr}}) = A_{\mathrm{tr}}^2$. Quadratic gating is the unique minimal polynomial schedule whose sensitivity vanishes at both ends of training while peaking mid-trajectory (^\star = 0.5$).
-3. **Logarithmic Failure Penalty (Lemma 3):** Under class-conditional error feedback $, a multiplicative shift in predicted class probabilities corresponds to an additive logarithmic penalty $\Delta_c = 1 + \log M_c$ in the logit/log-odds domain, remaining bounded ($\le 1 + \log\frac{1+\epsilon}{\epsilon}$) unlike direct ratio multipliers ( \to \infty$).
-4. **Trace Normalization (Lemma 4):** The dynamic weight vector is constrained to the simplex $\|W_{\mathrm{act}}\|_1 = K$ via $\ell_1$ normalization, guaranteeing scale-invariant loss smoothness ( \le L_0$) across arbitrary imbalance ratios $\rho = N_{\max}/N_{\min}$.
-5. **Bounded Post-Hoc Calibration (Proposition 3):** A principled Bayes-optimal log-prior subtraction $\hat{y}(x) = \arg\max_c (z_c - \tau^\star \log \pi_c)$ corrects residual prior bias. The temperature search is analytically bounded by $\tau \le R / \log(\pi_{\max}/\pi_{\min}) \le 3.0$.
-
-### Summary of Mathematical Notations (Supplementary Table 3)
-
-| Symbol | Domain / Definition | Description |
-| :---: | :--- | :--- |
-| $\mathcal{D}_{\mathrm{tr}},\,\mathcal{D}_{\mathrm{val}}$ | $\{(x_i, y_i)\}$ | Stratified training (\%$) and validation (\%$) splits of the long-tailed training pool |
-| ,\,N_c,\,N$ |  = \sum_{c=1}^K N_c$ | Number of classes $, training count $ of class $, and total training samples $ |
-| {\max},\,N_{\min},\,\rho$ | $\rho = N_{\max}/N_{\min} \ge 1$ | Head class count, rarest tail class count, and dataset imbalance factor $\rho$ |
-| $\pi_c,\,\pi_{\max},\,\pi_{\min}$ | $\pi_c = N_c / N \in (0, 1)$ | Empirical training prior probability of class $, and head/tail class priors |
-| $\mathcal{P}_{\mathrm{tr}}(x,y),\,\mathcal{P}_{\mathrm{bal}}(x,y)$ | $\mathcal{P}_{\mathrm{tr}}(y{=}c)=\pi_c,\;\mathcal{P}_{\mathrm{bal}}(y{=}c)=1/K$ | Long-tailed training distribution and target class-balanced test distribution |
-| \theta(x),\,g_\phi(\cdot)$ | \theta(x) \in \mathbb{R}^d,\; W \in \mathbb{R}^{d \times K}$ | Backbone feature extractor ($\theta$) and linear classification head ($\phi = W$) |
-| ,\,p_c,\,\ell(x,y)$ |  = w_c^\top f_\theta(x),\; p_c = \mathrm{softmax}(z)_c$ | Raw unnormalized logit score, softmax class probability, and unweighted CE loss |
-| {\mathrm{rep}}^{(c)},\,W_{\mathrm{pen}}^{(c)}$ | {\max}/N_c\;(\beta{=}1),\;\sqrt{N_{\max}/N_c}\;(\beta{=}\tfrac12)$ | Unbiased representation weight and equal-contribution penalty base weight |
-| $\mathcal{V}_c(\beta),\,\mathcal{D}(\beta),\,\Phi(\beta)$ | $\mathcal{V}_c(\beta) = \pi_c W_c^2 = \frac{N_{\max}^{2\beta}}{N} N_c^{1-2\beta}$ | Per-class second-moment share, rarest-to-head ratio $\rho^{2\beta-1}$, and log-disparity functional |
-| {\mathrm{tr}},\,\gamma(A_{\mathrm{tr}}),\,\mathcal{S}(A)$ | $\gamma(A_{\mathrm{tr}}) = A_{\mathrm{tr}}^2 \in [0, 1]$ | Epoch training accuracy, quadratic homotopy coefficient, and gradient sensitivity |
-| $\mathrm{F1}_{\mathrm{tr}}^{(c)},\,M_c,\,\Delta_c$ |  = \frac{\max_j \mathrm{F1}_{\mathrm{tr}}^{(j)} + \epsilon}{\mathrm{F1}_{\mathrm{tr}}^{(c)} + \epsilon},\;\Delta_c = 1 + \log M_c$ | EMA-smoothed ($\alpha=0.9$) training-set per-class F1, deficit ratio $, and log failure penalty $\Delta_c$ |
-| {\mathrm{dyn}}^{(c)},\,W_{\mathrm{act}}^{(c)}$ | {\mathrm{dyn}}^{(c)} = W_{\mathrm{pen}}^{(c)}\Delta_c,\;\frac{1}{K}\|W_{\mathrm{act}}\|_1 = 1$ | Dynamic failure-penalized weight and $\ell_1$-trace-normalized active class weight |
-| $\tau^\star,\,\lambda,\,\tilde{z}_c,\,w_c^{\mathrm{val}}$ | $\tau^\star \in [0, \lambda],\;\tilde{z}_c = z_c - \tau^\star \log \pi_c$ | Validation-optimal log-prior calibration scalar, analytical upper bound $\lambda$, calibrated logit, and validation sample weight ^{\mathrm{val}}=1/(\pi_c+\epsilon)$ |
+1. **Equal-Contribution Importance Weighting (Proposition 1):** Inverse-frequency re-weighting causes each minority class's share of the gradient second moment to grow as $\mathcal{O}(1/N_c)$. A square-root damping exponent ($\beta = 1/2$) uniquely renders the per-class second-moment share independent of $N_c$ ($\mathcal{O}(N_c^0)$ across all classes), eliminating tail gradient explosion.
+2. **Accuracy-Gated Homotopy (Proposition 2):** Training is transitioned smoothly from feature representation learning ($\mathcal{L}_{\mathrm{rep}}$) to class-balanced loss scaling ($\mathcal{L}_{\mathrm{dyn}}$) via an epoch-free quadratic accuracy gate $\gamma(A_{\mathrm{tr}}) = A_{\mathrm{tr}}^2$. Quadratic gating is the unique minimal polynomial schedule whose sensitivity vanishes at both ends of training while peaking mid-trajectory ($A^\star = 0.5$).
+3. **Logarithmic Failure Penalty (Lemma 3):** Under class-conditional error feedback $M_c$, a multiplicative shift in predicted class probabilities corresponds to an additive logarithmic penalty $\Delta_c = 1 + \log M_c$ in the logit/log-odds domain, remaining bounded ($\le 1 + \log\frac{1+\epsilon}{\epsilon}$) unlike direct ratio multipliers ($M_c \to \infty$).
+4. **Trace Normalization (Lemma 4):** The dynamic weight vector is constrained to the simplex $\|W_{\mathrm{act}}\|_1 = K$ via $\ell_1$ normalization, guaranteeing scale-invariant loss smoothness ($L \le L_0$) across arbitrary imbalance ratios $\rho = N_{\max}/N_{\min}$.
+5. **Bounded Post-Hoc Calibration (Proposition 3):** A principled Bayes-optimal log-prior subtraction $\hat{y}(x) = \arg\max_c (z_c - \tau^\star \log \pi_c)$ corrects residual prior bias. The temperature search is analytically bounded by $\tau \le \lambda = R / \log(\pi_{\max}/\pi_{\min}) \le 3.0$.
 
 ### Assumption vs. Component Breakdown (Paper Table 1)
 
 | Component | Status | Governing Theoretical Property / Assumption |
 | :--- | :---: | :--- |
-| **{\mathrm{rep}} = N_{\max}/N_c$ ($\beta = 1$)** | **Derived** | Importance weight to balanced target distribution $\mathcal{P}_{\mathrm{bal}}$. |
-| **{\mathrm{pen}} = \sqrt{N_{\max}/N_c}$ ($\beta = 1/2$)** | **Derived** | Equalizes per-class gradient second-moment share $\mathcal{V}_c(\beta)$ (Prop. 1). |
-| **Gate $\gamma(A_{\mathrm{tr}}) = A_{\mathrm{tr}}^2$ ( = 2$)** | **Derived** | Minimal polynomial degree with vanishing initial sensitivity $\gamma'(0)=0$ (Prop. 2). |
-| **Gating Signal {\mathrm{tr}}$ & Failure Signal $\mathrm{F1}_{\mathrm{tr}}$** | **Chosen** | Label-free of validation data; EMA (.9$) smooths epoch noise. |
+| **$W_{\mathrm{rep}}^{(c)} = N_{\max}/N_c$ ($\beta = 1$)** | **Derived** | Importance weight to balanced target distribution $\mathcal{P}_{\mathrm{bal}}$. |
+| **$W_{\mathrm{pen}}^{(c)} = \sqrt{N_{\max}/N_c}$ ($\beta = 1/2$)** | **Derived** | Equalizes per-class gradient second-moment share $\mathcal{V}_c(\beta)$ (Prop. 1). |
+| **Gate $\gamma(A_{\mathrm{tr}}) = A_{\mathrm{tr}}^2$ ($p = 2$)** | **Derived** | Minimal polynomial degree with vanishing initial sensitivity $\gamma'(0)=0$ (Prop. 2). |
+| **Gating Signal $A_{\mathrm{tr}}$ & Failure Signal $\mathrm{F1}_{\mathrm{tr}}$** | **Chosen** | Label-free of validation data; EMA ($\alpha = 0.9$) smooths epoch noise. |
 | **Penalty $\Delta_c = 1 + \log M_c$** | **Chosen** | Motivated by exact softmax odds--logit equivalence ($\delta_c = \log M_c + C$). |
 | **Trace Norm $\|W_{\mathrm{act}}\|_1 = K$** | **Chosen** | Fixes global loss scale across training epochs. |
 | **Calibration Bound $\lambda = R/\log(\pi_{\max}/\pi_{\min})$** | **Derived** | Non-degeneracy upper bound on post-hoc log-prior search (Prop. 3). |
 
+### Summary of Mathematical Notations (Supplementary Table 6)
+
+| Symbol | Domain / Definition | Description |
+| :---: | :--- | :--- |
+| $\mathcal{D}_{\mathrm{tr}},\,\mathcal{D}_{\mathrm{val}}$ | $\{(x_i, y_i)\}$ | Stratified training ($85\%$) and validation ($15\%$) splits of the long-tailed training pool |
+| $K,\,N_c,\,N$ | $N = \sum_{c=1}^K N_c$ | Number of classes $K$, training count $N_c$ of class $c$, and total training samples $N$ |
+| $N_{\max},\,N_{\min},\,\rho$ | $\rho = N_{\max}/N_{\min} \ge 1$ | Head class count, rarest tail class count, and dataset imbalance factor $\rho$ |
+| $\pi_c,\,\pi_{\max},\,\pi_{\min}$ | $\pi_c = N_c / N \in (0, 1)$ | Empirical training prior probability of class $c$, and head/tail class priors |
+| $\mathcal{P}_{\mathrm{tr}}(x,y),\,\mathcal{P}_{\mathrm{bal}}(x,y)$ | $\mathcal{P}_{\mathrm{tr}}(y{=}c)=\pi_c,\;\mathcal{P}_{\mathrm{bal}}(y{=}c)=1/K$ | Long-tailed training distribution and target class-balanced test distribution |
+| $f_\theta(x),\,g_\phi(\cdot)$ | $f_\theta(x) \in \mathbb{R}^d,\; W \in \mathbb{R}^{d \times K}$ | Backbone feature extractor ($\theta$) and linear classification head ($\phi = W$) |
+| $z_c,\,p_c,\,\ell(x,y)$ | $z_c = w_c^\top f_\theta(x),\; p_c = \mathrm{softmax}(z)_c$ | Raw unnormalized logit score, softmax class probability, and unweighted CE loss |
+| $W_{\mathrm{rep}}^{(c)},\,W_{\mathrm{pen}}^{(c)}$ | $N_{\max}/N_c\;(\beta{=}1),\;\sqrt{N_{\max}/N_c}\;(\beta{=}\tfrac12)$ | Unbiased representation weight and equal-contribution penalty base weight |
+| $\mathcal{V}_c(\beta),\,\mathcal{D}(\beta),\,\Phi(\beta)$ | $\mathcal{V}_c(\beta) = \pi_c W_c^2 = \frac{N_{\max}^{2\beta}}{N} N_c^{1-2\beta}$ | Per-class second-moment share, rarest-to-head ratio $\rho^{2\beta-1}$, and log-disparity functional |
+| $A_{\mathrm{tr}},\,\gamma(A_{\mathrm{tr}}),\,\mathcal{S}(A)$ | $\gamma(A_{\mathrm{tr}}) = A_{\mathrm{tr}}^2 \in [0, 1]$ | Epoch training accuracy, quadratic homotopy coefficient, and gradient sensitivity |
+| $\mathrm{F1}_{\mathrm{tr}}^{(c)},\,M_c,\,\Delta_c$ | $M_c = \frac{\max_j \mathrm{F1}_{\mathrm{tr}}^{(j)} + \epsilon}{\mathrm{F1}_{\mathrm{tr}}^{(c)} + \epsilon},\;\Delta_c = 1 + \log M_c$ | EMA-smoothed ($\alpha=0.9$) training-set per-class F1, deficit ratio $M_c$, and log failure penalty $\Delta_c$ |
+| $W_{\mathrm{dyn}}^{(c)},\,W_{\mathrm{act}}^{(c)}$ | $W_{\mathrm{dyn}}^{(c)} = W_{\mathrm{pen}}^{(c)}\Delta_c,\;\frac{1}{K}\|W_{\mathrm{act}}\|_1 = 1$ | Dynamic failure-penalized weight and $\ell_1$-trace-normalized active class weight |
+| $\tau^\star,\,\lambda,\,\tilde{z}_c,\,w_c^{\mathrm{val}}$ | $\tau^\star \in [0, \lambda],\;\tilde{z}_c = z_c - \tau^\star \log \pi_c$ | Validation-optimal log-prior calibration scalar, analytical upper bound $\lambda$, calibrated logit, and validation sample weight $w_c^{\mathrm{val}}=1/(\pi_c+\epsilon)$ |
+
 ---
 
-## 2. Multi-Seed Robustness Evaluation (CIFAR-10-LT, ResNet-18)
+## 2. Multi-Seed Robustness Evaluation (Supplementary Table 4)
 
-Evaluated across three independent random seeds $\{0, 1, 2\}$ under identical training protocols and budgets. Every baseline was granted the identical post-hoc calibration search ($\tau^\star \in [0, 3.0]$ and $T^\star \in [0.2, 5.0]$) on the held-out validation split. Bold denotes the best performance per column.
+Evaluated on CIFAR-10-LT (ResNet-18) across three independent random seeds $\{0, 1, 2\}$ under identical training protocols and budgets. Every baseline was granted the identical post-hoc calibration search ($\tau^\star \in [0, 3.0]$ and $T^\star \in [0.2, 5.0]$) on the held-out validation split. Bold denotes the best performance per column.
 
 | Method | **Raw F1 ($\tau{=}0$)** | **$+\tau^\star$ F1** | Raw ECE | $+T^\star$ ECE | $p$-val vs. HALO |
 | :--- | :---: | :---: | :---: | :---: | :---: |
@@ -88,15 +88,14 @@ Evaluated across three independent random seeds $\{0, 1, 2\}$ under identical tr
 
 ## 3. Number Reconciliation Across Tables (Zero-Disparity Guide)
 
-To maintain absolute transparency between the paper and GitHub:
-* **Paper Table 2 (20-Backbone Benchmark):** CIFAR-10-LT on ResNet-18 reports **`0.7365`** Macro F1 from the standardized single-seed protocol (corresponding to Seed 1).
-* **Paper Table 3 (Component Ablation, $\tau=0$):** Reports Seed 0 evaluated uncalibrated (**`0.6648`** Raw F1) to isolate Stage-1 training effects.
-* **Supplementary Table 1 (Extended Ablation Grid):** Reports Seed 0 with post-hoc calibration (**`0.7470`** $+\tau^\star$ F1, `0.1414` ECE).
-* **Multi-Seed Suite (Table 4 above):** Reports the 3-seed aggregate (**`0.7445 ± 0.0071`** calibrated, **`0.6586 ± 0.0080`** raw), where Seed 0 = `0.7470`, Seed 1 = `0.7365`, and Seed 2 = `0.7500`.
+To maintain absolute transparency between the main paper, supplementary material, and GitHub:
+* **Paper Table 2 & Table 3 (20-Backbone Benchmark):** CIFAR-10-LT on ResNet-18 reports **`0.7365`** Macro F1 from the standardized single-seed protocol (corresponding to Seed 1).
+* **Section 4.3 & Supplementary Table 5 (Component Ablation Grid):** Reports Seed 0 evaluated both uncalibrated (**`0.6648`** Raw F1 at $\tau=0$) to isolate Stage-1 training effects and with post-hoc calibration (**`0.7470`** $+\tau^\star$ F1, `0.1414` ECE).
+* **Supplementary Table 4 (Multi-Seed Suite):** Reports the 3-seed aggregate (**`0.7445 ± 0.0071`** calibrated, **`0.6586 ± 0.0080`** raw), where Seed 0 = `0.7470`, Seed 1 = `0.7365`, and Seed 2 = `0.7500`.
 
 ---
 
-## 4. Comprehensive Component Ablation Grid (Supplementary Table S2)
+## 4. Comprehensive Component Ablation Grid (Supplementary Table 5)
 
 Evaluated on CIFAR-10-LT (ResNet-18) at both $\tau = 0$ (Raw) and post-hoc calibrated ($+\tau^\star$):
 
@@ -106,7 +105,7 @@ Evaluated on CIFAR-10-LT (ResNet-18) at both $\tau = 0$ (Raw) and post-hoc calib
 | **2. Exponents** | Cube-root exponents ($\beta = 0.33 \to 0.33$) | 0.6459 | 0.7420 | 0.2603 | 0.1533 | Suboptimal variance damping ($-1.89$ pp Raw F1). |
 | | Only $W_{\mathrm{rep}}$ (undampened, $\beta = 1.0$) | 0.6412 | 0.7385 | 0.2780 | 0.1620 | Tail gradient noise inflates variance. |
 | | Only $W_{\mathrm{pen}}$ (square-root, $\beta = 0.5$) | 0.6510 | 0.7430 | 0.2520 | 0.1490 | Misses early representation acceleration. |
-| **3. Phase Gate $\gamma(A_t)$** | Linear gate ($p = 1$) | 0.6480 | 0.7435 | 0.2550 | 0.1495 | Initial gradient shock $\mathcal{S}(0) > 0$. |
+| **3. Phase Gate $\gamma(A_{\mathrm{tr}})$** | Linear gate ($p = 1$) | 0.6480 | 0.7435 | 0.2550 | 0.1495 | Initial gradient shock $\mathcal{S}(0) > 0$. |
 | | Higher-order gate ($p = 5$) | 0.6520 | 0.7455 | 0.2505 | 0.1460 | Delayed re-weighting onset. |
 | | Discrete switch ($t_s = 50$) | 0.6368 | 0.7442 | 0.2714 | 0.1515 | Severe momentum staleness shock ($-2.80$ pp). |
 | | Cube-root + linear gate ($p = 1, \beta = 0.33$) | 0.6415 | 0.7410 | 0.2753 | 0.1776 | Combined exponent and gate degradation. |
@@ -119,7 +118,7 @@ Evaluated on CIFAR-10-LT (ResNet-18) at both $\tau = 0$ (Raw) and post-hoc calib
 
 ---
 
-## 5. Comprehensive 20-Configuration Main Benchmark (Paper Table 2)
+## 5. Comprehensive 20-Configuration Main Benchmark (Paper Tables 2 & 3)
 
 All models trained for 100 epochs using Adam ($\eta=10^{-4} \to 10^{-6}$), batch size 128 (SqueezeNet, MobileNet-V2, ResNet-18), 64 (EfficientNet-B0), 32 (DenseNet-121).
 
@@ -205,7 +204,7 @@ pip install -r requirements.txt
 
 ### Running Reproduction Scripts
 
-We provide three self-contained scripts designed to run on any PyTorch GPU environment (including single-cell Kaggle or Colab environments):
+We provide self-contained scripts designed to run on any PyTorch GPU environment (including single-cell Kaggle or Colab environments):
 
 1. **Baseline Suite with Shared Calibration (`kaggle_cifar10_script1_baselines.py`):**
    Runs all 15 methods (CE, WCE, CB, Focal, LDAM, LDAM-DRW, DBM, ALPA, RobustFocal, DCAL, LA, BalancedSoftmax, cRT, LWS, HALO) across multiple seeds with identical $\tau^\star$ and $T^\star$ sweeps:
@@ -233,7 +232,15 @@ We provide three self-contained scripts designed to run on any PyTorch GPU envir
 
 ---
 
-## 7. Citation
+## 7. Limitations, Future Work & LLM Usage Statement
+
+**Limitations and Future Work:** While HALO eliminates manual switch epochs and power-law sweeps, it still relies on a few chosen design elements (EMA smoothing $\alpha = 0.9$, unit offset in $\Delta_c = 1 + \log M_c$, and a 1-D validation search for $\tau^\star$), and our theoretical propositions establish variance-balancing and minimality properties rather than direct test-error optimality. Future work includes extending multi-seed evaluations to large-scale fine-grained benchmarks, exploring instance-dependent calibration thresholds, and investigating non-polynomial gate formulations beyond $p=2$.
+
+**LLM Usage Statement:** In accordance with the CVPR 2027 author guidelines and our submission declaration, no Large Language Models (LLMs) or AI tools were used in any aspect of this work—including research ideas, hypotheses, claims, or conclusions; related work and citations; code and implementation; experimental design, execution, and analysis of results; data creation or annotation; figures, diagrams, and visual material; writing and editing text; or obtaining reviewer-style feedback. The authors take full responsibility for all submitted content, regardless of any LLM or AI-tool use.
+
+---
+
+## 8. Citation
 
 ```bibtex
 @inproceedings{halo2027cvpr,
@@ -244,6 +251,6 @@ We provide three self-contained scripts designed to run on any PyTorch GPU envir
 }
 ```
 
-## 8. License
+## 9. License
 
 This repository is licensed under the MIT License. See [LICENSE](LICENSE) for details.

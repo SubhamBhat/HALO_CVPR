@@ -1706,20 +1706,24 @@ def run_pipeline():
             val_logits_np = np.concatenate(val_lg_list)
             val_tgts_np = np.concatenate(val_tg_list)
             
-            # Precompute log priors
+            # Precompute log priors and inverse-prior sample weights w_c^val = 1 / (pi_c + eps) (Eq. 20)
             class_priors = np.array(cfg.CLASS_COUNTS, dtype=np.float64)
             class_priors = class_priors / class_priors.sum()
             log_priors_np = np.log(class_priors + 1e-12)
+            val_sw = 1.0 / (class_priors[val_tgts_np] + 1e-9)
             
-            # Grid search: find tau that maximizes MACRO F1 on val set 
-            best_tau, best_val_f1 = 0.0, 0.0
+            # Grid search: find tau in [0, 3.0] that maximizes balanced Macro-F1 on val set
+            best_tau, best_val_f1 = 0.0, -1.0
             
             for tau_candidate in np.arange(0.0, 3.05, 0.05):
                 offset = tau_candidate * (-log_priors_np)  # Boost minority classes
                 adj_lg = val_logits_np + offset
                 adj_preds = adj_lg.argmax(axis=1)
-                rep = classification_report(val_tgts_np, adj_preds, output_dict=True, zero_division=0)
-                macro_f1 = rep['macro avg']['f1-score']
+                cm = np.zeros((cfg.NUM_CLASSES, cfg.NUM_CLASSES), dtype=np.float64)
+                np.add.at(cm, (val_tgts_np, adj_preds), val_sw)
+                tp = np.diag(cm)
+                denom = cm.sum(axis=1) + cm.sum(axis=0)
+                macro_f1 = float(np.where(denom > 0, 2.0 * tp / denom, 0.0).mean())
                 if macro_f1 > best_val_f1:
                     best_val_f1 = macro_f1
                     best_tau = float(tau_candidate)

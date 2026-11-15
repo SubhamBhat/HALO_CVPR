@@ -2,21 +2,14 @@ import torch
 import numpy as np
 from sklearn.metrics import f1_score
 
-def calibrate_tau_grid_search(val_logits, val_targets, class_counts, tau_range=(0.0, 3.0), step=0.01):
+def calibrate_tau_grid_search(val_logits, val_targets, class_counts, tau_range=(0.0, 3.0), step=0.01, use_prior_weights=True):
     """
-    Post-hoc Calibration: tau* = argmax_{tau} Macro-F1(val)
-    Adjusts logits using the class priors: f~_c = f_c - tau * log(pi_c)
-    
-    Args:
-        val_logits (np.ndarray or torch.Tensor): Raw validation logits.
-        val_targets (np.ndarray or torch.Tensor): Validation ground truth labels.
-        class_counts (list or np.ndarray): Number of training samples per class.
-        tau_range (tuple): (min_tau, max_tau) search space.
-        step (float): Grid search step size.
-        
-    Returns:
-        float: Optimal tau (tau*)
-        float: Best Macro-F1 score achieved on the validation set.
+    Bounded Post-Hoc Log-Prior Calibration (Proposition 3 & Algorithm 1):
+      tau* = argmax_{tau in [0, lambda]} Macro-F1_bal(D_val; tau)
+      Adjusts logits using the empirical class priors: z~_c = z_c - tau * log(pi_c)
+      with analytical upper bound lambda = R / log(pi_max / pi_min) <= 3.0.
+      Validation samples are inverse-prior weighted w_c^val = 1 / (pi_c + eps) (Eq. 20)
+      to evaluate balanced macro-F1 on the long-tailed validation split.
     """
     if torch.is_tensor(val_logits):
         val_logits = val_logits.cpu().numpy()
@@ -24,22 +17,28 @@ def calibrate_tau_grid_search(val_logits, val_targets, class_counts, tau_range=(
         val_targets = val_targets.cpu().numpy()
         
     counts = np.array(class_counts, dtype=np.float64)
+    num_classes = len(counts)
     priors = counts / counts.sum()
-    log_priors = np.log(priors + 1e-9)
+    log_priors = np.log(priors + 1e-12)
+    sw = (1.0 / (priors[val_targets] + 1e-9)) if use_prior_weights else np.ones(len(val_targets), dtype=np.float64)
     
     best_tau = 0.0
     best_f1 = -1.0
     
-    for tau in np.arange(tau_range[0], tau_range[1] + step, step):
-        # Apply shift: f~_c = f_c - tau * log(pi_c)
+    for tau in np.arange(tau_range[0], tau_range[1] + step * 0.5, step):
+        # Apply shift: z~_c = z_c - tau * log(pi_c)
         shifted_logits = val_logits - tau * log_priors
-        
         preds = np.argmax(shifted_logits, axis=1)
-        f1 = f1_score(val_targets, preds, average='macro')
+        
+        cm = np.zeros((num_classes, num_classes), dtype=np.float64)
+        np.add.at(cm, (val_targets, preds), sw)
+        tp = np.diag(cm)
+        denom = cm.sum(axis=1) + cm.sum(axis=0)
+        f1 = float(np.where(denom > 0, 2.0 * tp / denom, 0.0).mean())
         
         if f1 > best_f1:
             best_f1 = f1
-            best_tau = tau
+            best_tau = float(tau)
             
     return best_tau, best_f1
 
