@@ -120,11 +120,22 @@ Evaluated on CIFAR-10-LT (ResNet-18) at both $\tau = 0$ (Raw) and post-hoc calib
 
 ## 5. Comprehensive 20-Configuration Main Benchmark (Paper Tables 2 & 3)
 
+### Dataset Construction (training-split imbalance $\rho = N_{\max}/N_{\min}$)
+
+| Dataset | Classes | Pool (per-class max → min) | Train / Val (85/15, stratified) | Train per-class max → min | $\rho$ (train) | Test set |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| CIFAR-10-LT | 10 | 26,700 (5,000 → 100) | 22,695 / 4,005 | 4,250 → 85 | 50:1 | 10,000 (official) |
+| CIFAR-100-LT | 100 | 12,608 (500 → 10) | 10,716 / 1,892 | 425 → 9 | 47.2:1 | 10,000 (official) |
+| Oxford-IIIT Pets-LT | 37 | 937 (100 → 2) | 796 / 141 | 85 → 2 | 42.5:1 | 3,669 (official) |
+| CUB-200-LT | 200 | 1,497 (30 → 2) | 1,272 / 225 | 25 → 2 | 12.5:1 | 5,794 (official) |
+
+Profiles follow $n_c = \lfloor n_{\max}\cdot 50^{-c/(K-1)}\rfloor$ (at least 2 images per class); Pets-LT uses the official `trainval` split and CUB-200-LT the official training split as pools.
+
 All models trained for 100 epochs using Adam ($\eta=10^{-4} \to 10^{-6}$), batch size 128 (SqueezeNet, MobileNet-V2, ResNet-18), 64 (EfficientNet-B0), 32 (DenseNet-121).
 
 ### ResNet-18
 
-| Method | CIFAR-10-LT (50:1) | CIFAR-100-LT (47.2:1) | Oxford Pets-LT (10:1) | CUB-200-LT (10:1) |
+| Method | CIFAR-10-LT (50:1) | CIFAR-100-LT (47.2:1) | Oxford Pets-LT (42.5:1) | CUB-200-LT (12.5:1) |
 |:---|:---:|:---:|:---:|:---:|
 | WCE | 0.6441 | 0.3611 | 0.5588 | 0.1767 |
 | CB Loss | 0.6494 | 0.3445 | 0.5618 | 0.1806 |
