@@ -234,7 +234,7 @@ We provide self-contained scripts designed to run on any PyTorch GPU environment
 
 ## 7. Limitations, Future Work & LLM Usage Statement
 
-**Limitations and Future Work:** While HALO eliminates manual switch epochs and power-law sweeps, it still relies on a few chosen design elements (EMA smoothing $\alpha = 0.9$, unit offset in $\Delta_c = 1 + \log M_c$, and a 1-D validation search for $\tau^\star$), and our theoretical propositions establish variance-balancing and minimality properties rather than direct test-error optimality. Future work includes extending multi-seed evaluations to large-scale fine-grained benchmarks, exploring instance-dependent calibration thresholds, and investigating non-polynomial gate formulations beyond $p=2$.
+**Limitations and Future Work:** Our evaluation currently focuses on image-level classification with known training class counts $N_c$. Future work will extend HALO to dense prediction tasks (long-tailed object detection and instance segmentation) and streaming settings with unknown or shifting class priors.
 
 **LLM Usage Statement:** In accordance with the CVPR 2027 author guidelines and our submission declaration, no Large Language Models (LLMs) or AI tools were used in any aspect of this work—including research ideas, hypotheses, claims, or conclusions; related work and citations; code and implementation; experimental design, execution, and analysis of results; data creation or annotation; figures, diagrams, and visual material; writing and editing text; or obtaining reviewer-style feedback. The authors take full responsibility for all submitted content, regardless of any LLM or AI-tool use.
 
